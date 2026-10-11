@@ -13,7 +13,12 @@ module.exports = {
     const me = await interaction.guild.members.fetchMe();
     const required = [PermissionFlagsBits.ViewChannel, channel.isThread() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages];
     if (!actor.permissions.has(PermissionFlagsBits.ManageMessages) || !channel.permissionsFor(actor)?.has(required) || !channel.permissionsFor(me)?.has(required)) return interaction.editReply('Both you and the bot must be allowed to view and send messages in that channel.');
-    await channel.send({ content: interaction.options.getString('message', true), allowedMentions: { parse: [] } });
+    const content = interaction.options.getString('message', true);
+    const mentionsEveryone = /@(everyone|here)\b/.test(content);
+    if (mentionsEveryone && (!channel.permissionsFor(actor)?.has(PermissionFlagsBits.MentionEveryone) || !channel.permissionsFor(me)?.has(PermissionFlagsBits.MentionEveryone))) {
+      return interaction.editReply('Both you and the bot need Mention @everyone, @here, and All Roles permission in that channel to send this ping.');
+    }
+    await channel.send({ content, allowedMentions: { parse: ['users', 'everyone'] } });
     await interaction.editReply('Sent!');
   }
 };

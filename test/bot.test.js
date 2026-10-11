@@ -138,7 +138,7 @@ test('say blocks users lacking permission without sending a message', async () =
   await require('../commands/utility/say').execute({ memberPermissions: { has: () => false }, reply: async r => { response = r; } });
   assert.match(response.content, /Manage Messages/);
 });
-test('say verifies destination access and suppresses mentions', async () => {
+test('say verifies destination access and allows user, everyone and here mentions', async () => {
   const actor = member('mod', 5, [P.ManageMessages]);
   const sent = []; const replies = [];
   let access = false;
@@ -146,12 +146,39 @@ test('say verifies destination access and suppresses mentions', async () => {
     permissionsFor: () => ({ has: () => access }), send: async payload => sent.push(payload) };
   const i = { user: actor, guildId: 'g', memberPermissions: actor.permissions,
     guild: { members: { fetch: async () => actor, fetchMe: async () => member('bot', 10) } },
-    options: { getChannel: () => channel, getString: () => '@everyone test' },
+    options: { getChannel: () => channel, getString: () => '<@123456789012345678> @everyone @here test' },
     deferReply: async () => {}, editReply: async r => replies.push(r) };
   const command = require('../commands/utility/say');
   await command.execute(i); assert.equal(sent.length, 0);
   access = true; await command.execute(i);
-  assert.deepEqual(sent, [{ content: '@everyone test', allowedMentions: { parse: [] } }]);
+  assert.deepEqual(sent, [{ content: '<@123456789012345678> @everyone @here test', allowedMentions: { parse: ['users', 'everyone'] } }]);
+});
+
+test('say requires both actor and bot permission for mass pings but not user pings', async () => {
+  const actor = member('mod', 5, [P.ManageMessages]);
+  const bot = member('bot', 10);
+  const sent = []; const replies = [];
+  let actorCanMention = false; let botCanMention = true;
+  let content = '@everyone test';
+  const channel = { guildId: 'g', isTextBased: () => true, isSendable: () => true, isThread: () => false,
+    permissionsFor: who => ({ has: permission => permission !== P.MentionEveryone || (who.id === actor.id ? actorCanMention : botCanMention) }),
+    send: async payload => sent.push(payload) };
+  const i = { user: actor, guildId: 'g', memberPermissions: actor.permissions,
+    guild: { members: { fetch: async () => actor, fetchMe: async () => bot } },
+    options: { getChannel: () => channel, getString: () => content },
+    deferReply: async () => {}, editReply: async r => replies.push(r) };
+  const command = require('../commands/utility/say');
+  await command.execute(i);
+  assert.equal(sent.length, 0);
+  assert.match(replies.at(-1), /Both you and the bot need Mention/);
+  actorCanMention = true; botCanMention = false; content = '@here test';
+  await command.execute(i);
+  assert.equal(sent.length, 0);
+  assert.match(replies.at(-1), /Both you and the bot need Mention/);
+  actorCanMention = false; content = '<@123456789012345678> hello';
+  await command.execute(i);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].allowedMentions.parse, ['users', 'everyone']);
 });
 test('QOTD delete protects other users and allows moderators', async t => {
   t.mock.method(require('../commands/helper/qotdStore'), 'load', () => [{ id: 'entry', userId: 'author', question: 'Question' }]);
